@@ -920,13 +920,16 @@ html, body {
 /* ========================================================
    Standalone Kiosk Monitor TV Display (Pusdatin Kemhan)
    ======================================================== */
-.standalone-monitor-root {
-  min-height: 100vh;
-  background: radial-gradient(circle at 50% 10%, #0d3b37 0%, #061e1b 100%);
+.standalone-monitor-root,
+.kiosk-container {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  background: radial-gradient(circle at 50% 10%, #0d3b37 0%, #061e1b 100%) !important;
   color: #f8fafc;
   display: flex;
   flex-direction: column;
-  padding: 28px 36px;
+  padding: 16px 24px;
   box-sizing: border-box;
   font-family: inherit;
 }
@@ -938,31 +941,32 @@ html, body {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
-  padding: 18px 28px;
-  margin-bottom: 28px;
+  border-radius: 18px;
+  padding: 10px 22px;
+  margin-bottom: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
 }
 
 .kiosk-brand {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 .kiosk-logo-box {
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   background: linear-gradient(135deg, rgba(13, 148, 136, 0.3), rgba(16, 185, 129, 0.2));
   border: 1px solid rgba(45, 212, 191, 0.4);
-  border-radius: 16px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .kiosk-title {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: 0.05em;
   margin: 0;
@@ -970,28 +974,28 @@ html, body {
 }
 
 .kiosk-subtitle {
-  font-size: 13px;
+  font-size: 12px;
   color: #94a3b8;
-  margin: 4px 0 0 0;
+  margin: 2px 0 0 0;
 }
 
 .kiosk-center-status {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .kiosk-live-badge {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 11px;
   font-weight: 800;
   color: #34d399;
   letter-spacing: 0.1em;
   background: rgba(16, 185, 129, 0.12);
-  padding: 6px 14px;
+  padding: 4px 12px;
   border-radius: 999px;
   border: 1px solid rgba(52, 211, 153, 0.3);
 }
@@ -1000,7 +1004,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 10px;
   color: #6ee7b7;
   font-family: monospace;
 }
@@ -1013,97 +1017,104 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  font-size: 24px;
+  gap: 8px;
+  font-size: 20px;
   font-weight: 900;
   color: #2dd4bf;
   font-variant-numeric: tabular-nums;
 }
 
 .kiosk-date-text {
-  font-size: 13px;
+  font-size: 12px;
   color: #cbd5e1;
   display: block;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .kiosk-body {
   flex: 1;
   display: flex;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .kiosk-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 28px;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 16px;
   width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .kiosk-info-card {
   background: rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 28px;
-  padding: 36px;
+  border-radius: 20px;
+  padding: 20px 22px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .eyebrow-mil {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.15em;
   color: #2dd4bf;
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .kiosk-info-card h2 {
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 800;
   margin: 0;
   color: #ffffff;
 }
 
 .kiosk-lead {
-  font-size: 14px;
+  font-size: 13px;
   color: #94a3b8;
-  margin: 6px 0 24px 0;
+  margin: 2px 0 12px 0;
 }
 
 .kiosk-schedules {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .kiosk-schedule-item {
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
 }
 
 .sched-tag {
-  font-size: 11px;
+  font-size: 10px;
   color: #94a3b8;
   text-transform: uppercase;
   font-weight: 700;
 }
 
 .kiosk-schedule-item strong {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 900;
   color: #2dd4bf;
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .kiosk-schedule-item small {
-  font-size: 11px;
+  font-size: 10px;
   color: #64748b;
 }
 

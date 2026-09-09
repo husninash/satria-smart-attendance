@@ -4,10 +4,26 @@ namespace App\Services;
 
 use App\Models\Attendance;
 use App\Models\User;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Barryvdh\DomPDF\PDF as DomPDFInstance;
 use Carbon\Carbon;
 
 class ExportService
 {
+    /**
+     * Konversi angka bulan (1-12) ke angka romawi resmi tata naskah dinas.
+     */
+    private function getRomanMonth(int $month): string
+    {
+        $romans = [
+            1 => 'I', 2 => 'II', 3 => 'III', 4 => 'IV',
+            5 => 'V', 6 => 'VI', 7 => 'VII', 8 => 'VIII',
+            9 => 'IX', 10 => 'X', 11 => 'XI', 12 => 'XII',
+        ];
+
+        return $romans[$month] ?? 'I';
+    }
+
     /**
      * Generate data laporan presensi bulanan pegawai secara OOP.
      *
@@ -36,11 +52,21 @@ class ExportService
         $totalPresent = 0;
         $totalLate = 0;
         $totalAbsent = 0;
+        $workDays = 0;
+
+        $passedWorkDays = 0;
 
         for ($d = 1; $d <= $daysInMonth; $d++) {
             $date = Carbon::create($carbonMonth->year, $carbonMonth->month, $d, 0, 0, 0, 'Asia/Jakarta');
             $dateStr = $date->toDateString();
             $isWeekend = $date->isWeekend();
+
+            if (!$isWeekend) {
+                $workDays++;
+                if ($date->lessThanOrEqualTo(Carbon::today('Asia/Jakarta'))) {
+                    $passedWorkDays++;
+                }
+            }
 
             if (isset($attendances[$dateStr])) {
                 $att = $attendances[$dateStr];
@@ -58,8 +84,10 @@ class ExportService
                     'inTime' => $att->in_time ? substr($att->in_time, 0, 5) : '—',
                     'outTime' => $att->out_time ? substr($att->out_time, 0, 5) : '—',
                     'status' => $status,
+                    'mode' => $att->attendance_mode ?? 'WFO',
                     'location' => 'Pusdatin Kemhan',
                     'distance' => "{$att->distance_meters} m",
+                    'isMock' => (bool) $att->is_mock_location,
                     'isWeekend' => false,
                 ];
             } else {
@@ -75,12 +103,17 @@ class ExportService
                     'inTime' => '—',
                     'outTime' => '—',
                     'status' => $status,
+                    'mode' => $isWeekend ? '—' : 'WFO',
                     'location' => $isWeekend ? '—' : 'Pusdatin Kemhan',
                     'distance' => '—',
+                    'isMock' => false,
                     'isWeekend' => $isWeekend,
                 ];
             }
         }
+
+        $calcDays = $carbonMonth->isCurrentMonth() ? max(1, $passedWorkDays) : max(1, $workDays);
+        $complianceRate = min(100, round(($totalPresent / $calcDays) * 100, 1));
 
         return [
             'institution' => 'Pusdatin Kemhan RI',
@@ -88,19 +121,24 @@ class ExportService
             'reportTitle' => "Laporan Rekapitulasi Presensi Bulanan - {$monthName}",
             'period' => $monthName,
             'yearMonth' => $yearMonth,
+            'year' => (string) $carbonMonth->year,
+            'month' => (int) $carbonMonth->month,
+            'romanMonth' => $this->getRomanMonth((int) $carbonMonth->month),
             'generatedAt' => Carbon::now('Asia/Jakarta')->translatedFormat('d F Y, H:i') . ' WIB',
             'user' => [
                 'name' => $user->name,
                 'email' => $user->email,
-                'nip' => '199208152020121001',
-                'department' => 'Informatika / Pusdatin Kemhan',
-                'role' => 'Pranata Komputer Ahli',
+                'nip' => $user->nip ?: '199208152020121001',
+                'department' => $user->department ?: 'Subbidang Pengembangan dan Pengelolaan Sistem Aplikasi',
+                'role' => $user->role ?: 'Pranata Komputer Ahli',
             ],
             'summary' => [
                 'totalDays' => $daysInMonth,
+                'workDays' => $workDays,
                 'totalPresent' => $totalPresent,
                 'totalLate' => $totalLate,
                 'totalAbsent' => $totalAbsent,
+                'complianceRate' => $complianceRate,
             ],
             'rows' => $reportRows,
         ];
@@ -124,7 +162,7 @@ class ExportService
         fputcsv($output, []); // Baris kosong
         
         // Header Tabel
-        fputcsv($output, ['No', 'Hari', 'Tanggal', 'Jam Masuk', 'Jam Pulang', 'Status Kehadiran', 'Lokasi', 'Jarak GPS']);
+        fputcsv($output, ['No', 'Hari', 'Tanggal', 'Jam Masuk', 'Jam Pulang', 'Mode', 'Status Kehadiran', 'Lokasi', 'Jarak GPS']);
 
         // Isi Baris Data
         foreach ($report['rows'] as $idx => $row) {
@@ -134,6 +172,7 @@ class ExportService
                 $row['dateFormatted'],
                 $row['inTime'],
                 $row['outTime'],
+                $row['mode'] ?? 'WFO',
                 $row['status'],
                 $row['location'],
                 $row['distance'],
@@ -145,11 +184,34 @@ class ExportService
         fputcsv($output, ['RANGKUMAN BULAN INI']);
         fputcsv($output, ['Total Hadir:', $report['summary']['totalPresent'] . ' hari']);
         fputcsv($output, ['Total Terlambat:', $report['summary']['totalLate'] . ' kali']);
+        fputcsv($output, ['Tingkat Kepatuhan:', $report['summary']['complianceRate'] . '%']);
 
         rewind($output);
         $csvContent = stream_get_contents($output);
         fclose($output);
 
         return $csvContent;
+    }
+
+    /**
+     * Generate Dokumen PDF Resmi berlogo Pusdatin Kemhan.
+     */
+    public function generatePdfReport(array $report): DomPDFInstance
+    {
+        $logoPath = public_path('images/kemhan-logo.png');
+        $kemhanLogoBase64 = '';
+
+        if (file_exists($logoPath)) {
+            $kemhanLogoBase64 = base64_encode(file_get_contents($logoPath));
+        }
+
+        $report['kemhanLogoBase64'] = $kemhanLogoBase64;
+
+        $pdf = Pdf::loadView('reports.attendance_pdf', $report);
+        $pdf->setPaper('a4', 'portrait');
+        $pdf->setOption('isHtml5ParserEnabled', true);
+        $pdf->setOption('isRemoteEnabled', false);
+
+        return $pdf;
     }
 }

@@ -34,6 +34,7 @@ Route::delete('/users/{id}', [UserApiController::class, 'destroy']);
 // Export Report Routes (OOP)
 Route::get('/export/report', [ExportApiController::class, 'getMonthlyReport']);
 Route::get('/export/csv', [ExportApiController::class, 'downloadCsv']);
+Route::get('/export/pdf', [ExportApiController::class, 'downloadPdf']);
 
 Route::get('/user', function (Request $request) {
     return $request->user();

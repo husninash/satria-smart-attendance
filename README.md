@@ -27,9 +27,8 @@ Aplikasi presensi terintegrasi yang dirancang khusus untuk lingkungan **Pusat Da
 ## ⚙️ Panduan Menjalankan Aplikasi
 
 ### 1. Prasyarat
-- PHP >= 8.2 & Composer
+- Laragon (PHP >= 8.2, MySQL port `33006`, Apache) & Composer
 - Node.js >= 18 & npm
-- MySQL Server (Port default: `33006` atau disesuaikan di `.env`)
 
 ### 2. Menjalankan Backend (Laravel)
 ```bash

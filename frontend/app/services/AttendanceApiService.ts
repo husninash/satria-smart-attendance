@@ -96,7 +96,14 @@ export class AttendanceApiService {
     });
 
     if (!res.ok) {
-      throw new Error(`Gagal mencatat absensi: ${res.statusText}`);
+      let errMsg = `Gagal mencatat absensi (${res.statusText})`;
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.message) {
+          errMsg = errJson.message;
+        }
+      } catch {}
+      throw new Error(errMsg);
     }
 
     return await res.json();
@@ -154,6 +161,44 @@ export class AttendanceApiService {
     }
 
     return await res.json();
+  }
+
+  /**
+   * Unduh Dokumen PDF Laporan Resmi berlogo Pusdatin Kemhan.
+   */
+  public async downloadOfficialPdf(month?: string, userId?: number): Promise<void> {
+    const headers = this.getAuthHeaders();
+    const params = new URLSearchParams();
+    if (month) params.append("month", month);
+    if (userId) params.append("user_id", String(userId));
+    if (headers["X-User-Email"]) params.append("email", headers["X-User-Email"]);
+
+    const queryString = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${API_BASE_URL}/export/pdf${queryString}`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!res.ok) {
+      throw new Error(`Gagal mengunduh dokumen PDF (${res.statusText})`);
+    }
+
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition");
+    let filename = `Laporan_Resmi_Presensi_Pusdatin_Kemhan_${month || "Bulanan"}.pdf`;
+    if (disposition && disposition.includes("filename=")) {
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
   }
 }
 

@@ -116,7 +116,7 @@ class AttendanceService
         $currentSlot = (int) floor($now->timestamp / $stepSeconds);
         $secretSalt = config('app.key', 'SATRIA_PUSDATIN_KEMHAN_SECRET');
 
-        for ($slotOffset = 0; $slotOffset <= 1; $slotOffset++) {
+        for ($slotOffset = 0; $slotOffset <= 2; $slotOffset++) {
             $slot = $currentSlot - $slotOffset;
             $rawHash = hash('sha256', "PUSDATIN_KEMHAN_{$slot}_{$secretSalt}");
             $tokenCode = strtoupper(substr($rawHash, 0, 8));
@@ -183,7 +183,22 @@ class AttendanceService
             $attendanceMode = in_array(strtolower($activeLeave->type), ['wfh']) ? 'WFH' : 'Dinas Luar';
         }
 
-        // 2. Verifikasi Jaringan Fisik Kantor (WiFi Footprint)
+        // 2. Validasi Token Dinamis Lobi untuk Mode WFO
+        $providedToken = $metadata['token'] ?? null;
+        if ($attendanceMode === 'WFO') {
+            if (empty($providedToken)) {
+                throw new \InvalidArgumentException('Kode dinamis dari Layar TV Lobi wajib diisi untuk presensi WFO.');
+            }
+
+            if ($providedToken !== 'WIFI_VERIFIED') {
+                $isTokenValid = $this->verifyDynamicQrToken($providedToken);
+                if (!$isTokenValid) {
+                    throw new \InvalidArgumentException('Kode dinamis yang Anda masukkan salah atau sudah kedaluwarsa. Silakan periksa kode terbaru di Layar TV Lobi.');
+                }
+            }
+        }
+
+        // 3. Verifikasi Jaringan Fisik Kantor (WiFi Footprint)
         $clientIp = $metadata['ip'] ?? null;
         $isNetworkVerified = $this->isOfficeNetworkVerified($clientIp);
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Award, BarChart3, Bot, Building2, CalendarDays, Check, ChevronDown, ChevronRight, Clock3, Cpu, FileText, Filter, History, Home as HomeIcon, KeyRound, LocateFixed, Lock, LogOut, Mail, MapPin, Monitor, Pencil, PieChart as PieIcon, Plus, Printer, QrCode, RefreshCw, Search, Send, Settings, ShieldAlert, ShieldCheck, Trash2, TrendingUp, User as UserIcon, UserCheck, Users, X, Zap } from "lucide-react";
+import { AlertTriangle, Award, BarChart3, Bot, Building2, CalendarDays, Check, ChevronDown, ChevronRight, Clock3, Cpu, Download, FileText, Filter, History, Home as HomeIcon, KeyRound, LocateFixed, Lock, LogOut, Mail, MapPin, Monitor, Pencil, PieChart as PieIcon, Plus, Printer, QrCode, RefreshCw, Search, Send, Settings, ShieldAlert, ShieldCheck, Trash2, TrendingUp, User as UserIcon, UserCheck, Users, Wifi, WifiOff, X, Zap } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, Legend as RechartsLegend, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -106,6 +106,9 @@ export default function AttendanceApp() {
   const [locationStatus, setLocationStatus] = useState<string>("Mendeteksi lokasi...");
   const [adminMetrics, setAdminMetrics] = useState<any>(null);
   const [pageLoadTimestamp, setPageLoadTimestamp] = useState<number>(Date.now());
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isAppInstalled, setIsAppInstalled] = useState<boolean>(false);
 
   useEffect(() => {
     setMounted(true);
@@ -115,12 +118,48 @@ export default function AttendanceApp() {
       setCurrentUser(saved);
     }
     if (typeof window !== "undefined") {
+      setIsOnline(navigator.onLine);
+      const handleOnline = () => setIsOnline(true);
+      const handleOffline = () => setIsOnline(false);
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+
+      window.addEventListener("beforeinstallprompt", (e: any) => {
+        e.preventDefault();
+        setDeferredPrompt(e);
+      });
+
+      window.addEventListener("appinstalled", () => {
+        setIsAppInstalled(true);
+        setDeferredPrompt(null);
+      });
+
+      if (window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone) {
+        setIsAppInstalled(true);
+      }
+
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get("mode") === "kiosk" || urlParams.get("kiosk") === "true" || window.location.hash === "#kiosk") {
         setIsKioskMode(true);
       }
+
+      return () => {
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      };
     }
   }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice && choice.outcome === "accepted") {
+        setIsAppInstalled(true);
+      }
+      setDeferredPrompt(null);
+    }
+  };
 
   const handleLogout = async () => {
     await authService.logout();
@@ -245,29 +284,33 @@ export default function AttendanceApp() {
   }, [attendance, todayAttendance, currentDateTime]);
 
   const startScan = async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      alert("Koneksi jaringan terputus. Presensi SATRIA wajib dilakukan secara online dan terhubung ke infrastruktur Pusdatin Kemhan.");
+      return;
+    }
+
     const isAlreadyCheckedIn = todayAttendance && todayAttendance.inTime && todayAttendance.inTime !== "—" && todayAttendance.inTime !== "--:--";
     const isAlreadyCheckedOut = todayAttendance && todayAttendance.outTime && todayAttendance.outTime !== "—" && todayAttendance.outTime !== "--:--";
 
     // 1. Jika sudah lengkap check-in & check-out
     if (isAlreadyCheckedIn && isAlreadyCheckedOut) {
       setScanState("success");
-      setNotice("Presensi hari ini sudah lengkap.");
+      setNotice("Presensi hari ini sudah lengkap (Masuk & Pulang telah tercatat).");
       return;
     }
 
-    // 2. Strict Early Guard: Jika pegawai SUDAH check-in masuk hari ini
-    if (isAlreadyCheckedIn) {
-      setScanState("success");
-      setNotice(`Anda sudah melakukan check-in pada ${todayAttendance.inTime} WIB.`);
-      return;
-    }
-
-    // 3. Buka Modal Konfirmasi Presensi
+    // 2. Buka Modal Konfirmasi Presensi (Masuk atau Pulang)
     setScanState("scanning");
     setNotice("");
   };
 
   const handleVerifyKioskCode = async (code: string, event?: any) => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setScanState("idle");
+      alert("Koneksi jaringan terputus. Presensi SATRIA wajib dilakukan secara online dan terhubung ke infrastruktur Pusdatin Kemhan.");
+      return;
+    }
+
     setScanState("verifying");
     const isWebdriver = typeof navigator !== "undefined" && Boolean((navigator as any).webdriver);
     const dwellTimeMs = Date.now() - pageLoadTimestamp;
@@ -304,19 +347,8 @@ export default function AttendanceApp() {
       }
       await loadDashboardData();
     } catch (err: any) {
-      setScanState("success");
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-      setNotice(`Presensi berhasil dicatat pada ${timeStr} WIB`);
-      setTodayAttendance({
-        inTime: timeStr,
-        outTime: "—",
-        inTimeExact: timeStr,
-        outTimeExact: "—",
-        status: "Hadir",
-        distance: "Pusdatin Kemhan",
-      });
-      await loadDashboardData();
+      setScanState("scanning");
+      throw err;
     }
   };
 
@@ -548,6 +580,63 @@ export default function AttendanceApp() {
               <h1>{title}</h1>
             </div>
           </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {/* Status Jaringan Kemhan */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 10px",
+                borderRadius: 20,
+                fontSize: "0.74rem",
+                fontWeight: 600,
+                background: isOnline ? "rgba(16, 185, 129, 0.12)" : "rgba(244, 63, 94, 0.12)",
+                color: isOnline ? "#047857" : "#be123c",
+                border: isOnline ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(244, 63, 94, 0.3)",
+              }}
+              title={
+                isOnline
+                  ? "Terhubung ke Jaringan Intranet Pusdatin Kemhan (Siap Presensi)"
+                  : "Koneksi jaringan terputus. Presensi SATRIA wajib dilakukan secara online."
+              }
+            >
+              {isOnline ? (
+                <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <WifiOff className="w-3.5 h-3.5 text-rose-600" />
+              )}
+              <span>{isOnline ? "Intranet Kemhan Aktif" : "Offline (Wajib Online)"}</span>
+            </div>
+
+            {/* Tombol Install Aplikasi PWA (Bila didukung browser dan belum diinstall) */}
+            {deferredPrompt && !isAppInstalled && (
+              <button
+                type="button"
+                onClick={handleInstallApp}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "5px 12px",
+                  borderRadius: 8,
+                  fontSize: "0.76rem",
+                  fontWeight: 600,
+                  background: "linear-gradient(135deg, #0f766e 0%, #0d9488 100%)",
+                  color: "#ffffff",
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 6px rgba(13, 148, 136, 0.25)",
+                  transition: "all 0.15s ease",
+                }}
+                title="Install SATRIA ke Layar Utama HP / Desktop"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Install Aplikasi</span>
+              </button>
+            )}
+          </div>
         </header>
         <main className="content-area">
           {view === "home" && (
@@ -586,6 +675,9 @@ export default function AttendanceApp() {
               onUpdateUser={(updated) => {
                 setCurrentUser(updated);
               }}
+              isAppInstalled={isAppInstalled}
+              canInstallApp={Boolean(deferredPrompt && !isAppInstalled)}
+              onInstallApp={handleInstallApp}
             />
           )}
           {(view === "admin" || view === "admin-audit" || view === "admin-approval" || view === "admin-units" || view === "admin-users") && (
@@ -629,7 +721,8 @@ export default function AttendanceApp() {
 }
 
 function HomeView({ currentUser, scanState, startScan, notice, today, metrics, locationStatus, userLocation, currentDateTime, greeting, officeName = "Pusdatin Kemhan", onNavigate, onClose, onVerifyCode }: any) {
-  if (scanState !== "idle") return <ScanExperience state={scanState} notice={notice} userLocation={userLocation} officeName={officeName} onClose={onClose} onVerifyCode={onVerifyCode} />;
+  const isCheckout = Boolean(today?.inTime && today.inTime !== "—" && (!today?.outTime || today.outTime === "—"));
+  if (scanState !== "idle") return <ScanExperience state={scanState} notice={notice} userLocation={userLocation} officeName={officeName} onClose={onClose} onVerifyCode={onVerifyCode} isCheckout={isCheckout} />;
 
   const currentDayNumber = currentDateTime ? currentDateTime.getDate() : new Date().getDate();
   const currentMonthShort = currentDateTime ? currentDateTime.toLocaleDateString("id-ID", { month: "short" }).toUpperCase() : "AGU";
@@ -761,24 +854,29 @@ function HomeView({ currentUser, scanState, startScan, notice, today, metrics, l
   );
 }
 
-function ScanExperience({ state, notice, userLocation, officeName = "Pusdatin Kemhan", onClose, onVerifyCode }: any) {
+function ScanExperience({ state, notice, userLocation, officeName = "Pusdatin Kemhan", onClose, onVerifyCode, isCheckout = false }: any) {
   const [inputCode, setInputCode] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const handleSubmitCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = inputCode.replace(/\D/g, "");
-    if (clean.length < 6) {
-      setErrorMessage("Masukkan 6 digit angka yang tampil di Layar TV Lobi.");
+    const clean = inputCode.trim().replace(/[\s-]/g, "").toUpperCase();
+    if (!clean) {
+      setErrorMessage("Silakan masukkan 6-digit kode angka / token yang tampil di Layar TV Lobi.");
       return;
     }
     setErrorMessage("");
     setIsSubmitting(true);
-    if (onVerifyCode) {
-      await onVerifyCode(clean);
+    try {
+      if (onVerifyCode) {
+        await onVerifyCode(clean, e);
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Kode dinamis yang Anda masukkan salah atau sudah kedaluwarsa.");
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   return (
@@ -786,45 +884,109 @@ function ScanExperience({ state, notice, userLocation, officeName = "Pusdatin Ke
       <button className="close-scan" onClick={onClose} aria-label="Tutup pemindai"><X/></button>
       
       {state === "scanning" && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", maxWidth: 360, margin: "0 auto", textAlign: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", maxWidth: 400, margin: "0 auto", textAlign: "center" }}>
           {/* Icon */}
-          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg, #0d9488 0%, #0284c7 100%)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 25px rgba(13, 148, 136, 0.5)", marginBottom: 18 }}>
+          <div style={{ width: 62, height: 62, borderRadius: "50%", background: "linear-gradient(135deg, #0d9488 0%, #0284c7 100%)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 25px rgba(13, 148, 136, 0.45)", marginBottom: 14 }}>
             <ShieldCheck className="w-8 h-8 text-white" />
           </div>
 
-          <h2 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#fff", marginBottom: 6 }}>
-            Konfirmasi Presensi
+          <h2 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#fff", marginBottom: 4 }}>
+            {isCheckout ? "Presensi Pulang (Check-Out)" : "Presensi Masuk (Check-In)"}
           </h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.82rem", color: "#10b981", fontWeight: 500, marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.82rem", color: "#10b981", fontWeight: 500, marginBottom: 18 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block" }}></span>
             <span>Jaringan Terhubung ({officeName})</span>
           </div>
 
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={(e) => {
-              setIsSubmitting(true);
-              if (onVerifyCode) onVerifyCode("WIFI_VERIFIED", e);
-            }}
-            style={{
-              width: "100%",
-              padding: "14px 20px",
-              borderRadius: 12,
-              background: "linear-gradient(135deg, #059669 0%, #0d9488 100%)",
-              color: "#fff",
-              fontWeight: 600,
-              fontSize: "0.98rem",
-              border: "none",
-              cursor: "pointer",
-              boxShadow: "0 4px 14px rgba(5, 150, 105, 0.35)",
-              transition: "transform 0.15s ease, box-shadow 0.15s ease",
-            }}
-            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.98)")}
-            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-          >
-            {isSubmitting ? "Memproses..." : "Konfirmasi Hadir"}
-          </button>
+          <form onSubmit={handleSubmitCode} style={{ width: "100%", textAlign: "left" }}>
+            <label style={{ display: "block", fontSize: "0.82rem", color: "#cbd5e1", fontWeight: 600, marginBottom: 8 }}>
+              🔢 Masukkan Kode Dinamis / TOTP dari Layar TV Lobi:
+            </label>
+            <input
+              type="text"
+              value={inputCode}
+              onChange={(e) => {
+                setInputCode(e.target.value);
+                if (errorMessage) setErrorMessage("");
+              }}
+              placeholder="Contoh: 974201 atau 974-201"
+              maxLength={20}
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "13px 14px",
+                fontSize: "1.25rem",
+                fontWeight: 700,
+                letterSpacing: "3px",
+                textAlign: "center",
+                borderRadius: 12,
+                border: errorMessage ? "1.5px solid #ef4444" : "1.5px solid #334155",
+                background: "#09101f",
+                color: "#38bdf8",
+                outline: "none",
+                fontFamily: "monospace",
+                marginBottom: 6,
+                boxSizing: "border-box",
+              }}
+            />
+            {errorMessage ? (
+              <p style={{ color: "#ef4444", fontSize: "0.78rem", marginBottom: 12 }}>{errorMessage}</p>
+            ) : (
+              <p style={{ color: "#94a3b8", fontSize: "0.75rem", marginBottom: 14 }}>
+                Bisa diketik langsung 6 angka tanpa tanda strip (-), contoh: <strong>974201</strong>.
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{
+                width: "100%",
+                padding: "13px 20px",
+                borderRadius: 12,
+                background: "linear-gradient(135deg, #059669 0%, #0d9488 100%)",
+                color: "#fff",
+                fontWeight: 600,
+                fontSize: "0.98rem",
+                border: "none",
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(5, 150, 105, 0.35)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {isSubmitting ? "Memverifikasi..." : (isCheckout ? "Konfirmasi Presensi Pulang" : "Konfirmasi Presensi Masuk")}
+            </button>
+          </form>
+
+          {/* Akses Cepat */}
+          <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", fontSize: "0.8rem", paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            <a
+              href="/?view=monitor"
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "#2dd4bf", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 500 }}
+              title="Buka layar TV monitor lobi di tab baru untuk melihat kode yang aktif"
+            >
+              🖥️ Lihat Layar TV Lobi ↗
+            </a>
+            <button
+              type="button"
+              onClick={async (e) => {
+                setIsSubmitting(true);
+                try {
+                  if (onVerifyCode) await onVerifyCode("WIFI_VERIFIED", e);
+                } catch (err: any) {
+                  setErrorMessage(err.message || "Gagal verifikasi jaringan.");
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}
+              style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", textDecoration: "underline", fontSize: "0.78rem" }}
+              title="Gunakan ini jika berada di kantor tanpa melihat layar TV"
+            >
+              Bypass (Verifikasi WiFi)
+            </button>
+          </div>
         </div>
       )}
 
@@ -1006,6 +1168,19 @@ function HistoryView({ attendance, currentDateTime }: { attendance: Attendance[]
   const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
   const currentMonthLabel = `${monthNames[monthIndex]} ${year}`;
 
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  const handleExportOfficialPdf = async () => {
+    try {
+      setIsExportingPdf(true);
+      await attendanceService.downloadOfficialPdf(selectedMonth);
+    } catch (err: any) {
+      alert(err.message || "Gagal mengunduh dokumen PDF resmi.");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   return (
     <div className="page-stack">
       {/* Month Switcher & Export Toolbar */}
@@ -1014,7 +1189,7 @@ function HistoryView({ attendance, currentDateTime }: { attendance: Attendance[]
           <span className="eyebrow">PERIODE BULANAN</span>
           <h2 className="text-xl font-bold text-slate-800">{currentMonthLabel}</h2>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
             <SelectTrigger className="month-select-trigger">
               <CalendarDays className="w-4 h-4 mr-2 text-teal-700"/>
@@ -1027,6 +1202,33 @@ function HistoryView({ attendance, currentDateTime }: { attendance: Attendance[]
             </SelectContent>
           </Select>
 
+          {/* Tombol Unduh Laporan Resmi Format PDF (Berlogo Pusdatin Kemhan) */}
+          <button
+            type="button"
+            onClick={handleExportOfficialPdf}
+            disabled={isExportingPdf}
+            className="export-btn export-pdf"
+            title="Unduh Laporan Resmi Format PDF (Berlogo Pusdatin Kemhan)"
+            style={{
+              background: "linear-gradient(135deg, #881337 0%, #9f1239 100%)",
+              color: "#ffffff",
+              border: "1px solid #9f1239",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "7px 14px",
+              borderRadius: 8,
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              cursor: isExportingPdf ? "not-allowed" : "pointer",
+              boxShadow: "0 2px 6px rgba(136, 19, 55, 0.25)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <FileText className="w-4 h-4 text-rose-200" />
+            <span>{isExportingPdf ? "Membuat PDF..." : "Ekspor PDF Resmi (Kemhan)"}</span>
+          </button>
+
           {/* Tombol Ekspor CSV / Excel */}
           <a
             href={`/api/export/csv?month=${selectedMonth}`}
@@ -1037,16 +1239,6 @@ function HistoryView({ attendance, currentDateTime }: { attendance: Attendance[]
             <FileText className="w-4 h-4 text-emerald-600" />
             <span>Unduh Excel</span>
           </a>
-
-          {/* Tombol Cetak / Simpan PDF */}
-          <button
-            onClick={() => window.print()}
-            className="export-btn export-pdf"
-            title="Cetak atau Simpan Rekap sebagai Dokumen PDF"
-          >
-            <Printer className="w-4 h-4 text-slate-700" />
-            <span>Cetak PDF</span>
-          </button>
         </div>
       </div>
 
@@ -1346,9 +1538,15 @@ function RequestView({ requests, requestType, setRequestType, reason, setReason,
 function ProfileView({
   currentUser,
   onUpdateUser,
+  isAppInstalled,
+  canInstallApp,
+  onInstallApp,
 }: {
   currentUser: AuthUser;
   onUpdateUser: (user: AuthUser) => void;
+  isAppInstalled?: boolean;
+  canInstallApp?: boolean;
+  onInstallApp?: () => void;
 }) {
   const [formData, setFormData] = useState({
     name: currentUser.name || "",
@@ -1766,6 +1964,70 @@ function ProfileView({
               )}
             </button>
           </div>
+        </div>
+
+        {/* Card 3: Status PWA & Cache Instan */}
+        <div className="data-card" style={{ padding: "22px 24px", gridColumn: "1 / -1" }}>
+          <div className="section-head" style={{ marginBottom: 14 }}>
+            <div>
+              <span className="eyebrow">APLIKASI PWA &amp; CACHE CEPAT</span>
+              <h3 style={{ margin: 0, fontSize: "1.15rem", color: "#0f172a" }}>Status Aplikasi SATRIA Kemhan</h3>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, alignItems: "center" }}>
+            <div style={{ padding: "12px 14px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>Mode Aplikasi</div>
+              <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "#0f172a", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: isAppInstalled ? "#10b981" : "#0284c7" }}></span>
+                {isAppInstalled ? "Terpasang (PWA Standalone)" : "Browser Web (Dapat Di-install)"}
+              </div>
+            </div>
+
+            <div style={{ padding: "12px 14px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>Kecepatan &amp; Service Worker</div>
+              <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "#047857", marginTop: 2 }}>
+                ✓ Cache Cepat Aktif (Loading 0 Detik)
+              </div>
+            </div>
+
+            <div style={{ padding: "12px 14px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>Kebijakan Transaksi Presensi</div>
+              <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "#881337", marginTop: 2 }}>
+                🔒 Wajib Online (Intranet Pusdatin)
+              </div>
+            </div>
+          </div>
+
+          {canInstallApp && onInstallApp && (
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <strong style={{ fontSize: "0.85rem", color: "#1e293b", display: "block" }}>Pasang SATRIA ke Layar Utama Perangkat</strong>
+                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>Akses cepat tanpa browser bar seperti aplikasi native Kemhan.</span>
+              </div>
+              <button
+                type="button"
+                onClick={onInstallApp}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: 8,
+                  background: "linear-gradient(135deg, #881337 0%, #9f1239 100%)",
+                  color: "#ffffff",
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  border: "none",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  boxShadow: "0 2px 8px rgba(136, 19, 55, 0.25)",
+                }}
+              >
+                <Download className="w-4 h-4 text-rose-200" />
+                <span>Install SATRIA Sekarang</span>
+              </button>
+            </div>
+          )}
         </div>
       </form>
     </div>
@@ -2195,6 +2457,36 @@ function AdminView({
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await attendanceService.downloadOfficialPdf();
+                  } catch (err: any) {
+                    alert(err.message || "Gagal mengunduh laporan PDF resmi.");
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 13px",
+                  borderRadius: 8,
+                  background: "linear-gradient(135deg, #881337 0%, #9f1239 100%)",
+                  color: "#ffffff",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  border: "1px solid #9f1239",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  boxShadow: "0 1px 3px rgba(136, 19, 55, 0.2)",
+                }}
+                title="Unduh Laporan Resmi Format PDF (Berlogo Pusdatin Kemhan)"
+              >
+                <FileText className="w-3.5 h-3.5 text-rose-200" />
+                <span>Ekspor PDF Kemhan</span>
+              </button>
+
               {onRefreshData && (
                 <button
                   type="button"
@@ -3478,84 +3770,60 @@ function MonitorQrView({ currentDateTime }: { currentDateTime: Date }) {
           </div>
 
           <div className="token-info-box">
-            <span className="token-label">KODE TOKEN OTENTIKASI SESI:</span>
-            <strong className="token-val">{qrData?.displayCode || "PUSDATIN"}</strong>
+            <span className="token-label">KODE TOKEN DINAMIS (TOTP):</span>
+            <strong className="token-val" style={{ fontSize: "1.8rem", letterSpacing: "3px", color: "#38bdf8", fontFamily: "monospace" }}>
+              {qrData?.formattedCode || qrData?.numericCode || qrData?.displayCode || "PUSDATIN"}
+            </strong>
             <p className="token-desc">
-              Token QR ini berubah secara otomatis setiap 30 detik. Pemindaian hanya sah dilakukan secara langsung di lobby Pusdatin Kemhan.
+              Kode angka 6-digit berganti otomatis tiap 15 detik. Masukkan kode ini pada menu Presensi di HP Anda jika tidak memindai QR code.
             </p>
           </div>
         </div>
 
         <div className="monitor-right">
-          <div className="qr-wrapper">
-            <div className="qr-box">
-              <svg viewBox="0 0 200 200" className="qr-svg">
-                {/* Background */}
-                <rect width="200" height="200" fill="#ffffff" rx="12" />
-                
-                {/* Corner Positioning Markers */}
-                <rect x="20" y="20" width="45" height="45" fill="#0f766e" rx="4"/>
-                <rect x="28" y="28" width="29" height="29" fill="#ffffff" rx="2"/>
-                <rect x="34" y="34" width="17" height="17" fill="#0f766e" rx="2"/>
+          <div style={{
+            background: "linear-gradient(145deg, rgba(13, 148, 136, 0.18) 0%, rgba(15, 23, 42, 0.6) 100%)",
+            border: "2px solid rgba(45, 212, 191, 0.4)",
+            borderRadius: 24,
+            padding: "36px 24px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            boxShadow: "0 20px 40px rgba(0, 0, 0, 0.3)",
+          }}>
+            <span style={{ fontSize: "0.8rem", fontWeight: 800, letterSpacing: "0.15em", color: "#5eead4", textTransform: "uppercase", marginBottom: 12 }}>
+              KODE TOKEN PRESENSI (TOTP)
+            </span>
 
-                <rect x="135" y="20" width="45" height="45" fill="#0f766e" rx="4"/>
-                <rect x="143" y="28" width="29" height="29" fill="#ffffff" rx="2"/>
-                <rect x="149" y="34" width="17" height="17" fill="#0f766e" rx="2"/>
-
-                <rect x="20" y="135" width="45" height="45" fill="#0f766e" rx="4"/>
-                <rect x="28" y="143" width="29" height="29" fill="#ffffff" rx="2"/>
-                <rect x="34" y="149" width="17" height="17" fill="#0f766e" rx="2"/>
-
-                {/* Dynamic QR Matrix Pattern */}
-                <rect x="75" y="25" width="12" height="12" fill="#134e4a"/>
-                <rect x="95" y="25" width="12" height="12" fill="#134e4a"/>
-                <rect x="115" y="25" width="12" height="12" fill="#134e4a"/>
-
-                <rect x="75" y="45" width="12" height="12" fill="#134e4a"/>
-                <rect x="95" y="45" width="25" height="12" fill="#0f766e"/>
-                
-                <rect x="25" y="75" width="12" height="25" fill="#134e4a"/>
-                <rect x="45" y="75" width="20" height="12" fill="#0f766e"/>
-                <rect x="75" y="75" width="20" height="20" fill="#0d9488"/>
-                <rect x="105" y="75" width="15" height="12" fill="#134e4a"/>
-                <rect x="130" y="75" width="20" height="20" fill="#0f766e"/>
-                <rect x="160" y="75" width="15" height="15" fill="#134e4a"/>
-
-                <rect x="25" y="110" width="30" height="12" fill="#134e4a"/>
-                <rect x="65" y="105" width="15" height="20" fill="#0f766e"/>
-                <rect x="90" y="105" width="20" height="12" fill="#134e4a"/>
-                <rect x="120" y="105" width="25" height="12" fill="#0d9488"/>
-                <rect x="155" y="105" width="20" height="20" fill="#134e4a"/>
-
-                <rect x="75" y="135" width="20" height="15" fill="#134e4a"/>
-                <rect x="105" y="135" width="15" height="15" fill="#0f766e"/>
-                <rect x="130" y="135" width="25" height="15" fill="#134e4a"/>
-                <rect x="165" y="135" width="15" height="20" fill="#0f766e"/>
-
-                <rect x="75" y="160" width="25" height="15" fill="#0f766e"/>
-                <rect x="110" y="160" width="20" height="15" fill="#134e4a"/>
-                <rect x="140" y="160" width="35" height="15" fill="#0f766e"/>
-
-                {/* Center Kemhan Emblem Icon */}
-                <circle cx="100" cy="100" r="16" fill="#ffffff" />
-                <circle cx="100" cy="100" r="13" fill="#0f766e" />
-                <path d="M96 99 L99 102 L105 96" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-              </svg>
+            <div style={{
+              fontSize: "3.6rem",
+              fontWeight: 900,
+              letterSpacing: "6px",
+              color: "#ffffff",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              textShadow: "0 0 25px rgba(45, 212, 191, 0.75)",
+              margin: "10px 0",
+              lineHeight: 1.1,
+            }}>
+              {qrData?.formattedCode || qrData?.numericCode || "178-869"}
             </div>
 
-            {/* Countdown Circular Bar */}
-            <div className="countdown-container">
-              <div className="countdown-track">
+            <p style={{ color: "#94a3b8", fontSize: "0.85rem", maxWidth: 320, margin: "8px 0 20px 0" }}>
+              Ketik 6 digit angka di atas pada tombol Presensi di perangkat Anda
+            </p>
+
+            {/* Countdown Bar */}
+            <div className="countdown-container" style={{ width: "100%", maxWidth: 320 }}>
+              <div className="countdown-track" style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
                 <div 
                   className="countdown-fill" 
-                  style={{ width: `${(timeLeft / 30) * 100}%` }}
+                  style={{ width: `${(timeLeft / (qrData?.stepSeconds || 15)) * 100}%`, height: "100%", background: "linear-gradient(90deg, #10b981, #2dd4bf)", transition: "width 1s linear" }}
                 ></div>
               </div>
-              <div className="countdown-text">
-                <span>QR Berganti dalam: <strong>{timeLeft} detik</strong></span>
-                <span className="security-tag inline-flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-teal-600 inline" /> Anti-Foto Statis
-                </span>
+              <div className="countdown-text" style={{ marginTop: 8, display: "flex", justifyContent: "center", fontSize: "0.78rem", color: "#cbd5e1" }}>
+                <span>Kode berganti: <strong>{timeLeft} detik</strong></span>
               </div>
             </div>
           </div>

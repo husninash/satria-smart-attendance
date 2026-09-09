@@ -223,12 +223,19 @@ class AttendanceApiController extends Controller
             'device_fingerprint' => $request->input('device_fingerprint'),
         ];
 
-        $result = $this->attendanceService->recordAttendance(
-            $user->id,
-            $lat ? (float) $lat : null,
-            $lng ? (float) $lng : null,
-            $metadata
-        );
+        try {
+            $result = $this->attendanceService->recordAttendance(
+                $user->id,
+                $lat ? (float) $lat : null,
+                $lng ? (float) $lng : null,
+                $metadata
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
 
         $record = $result['record'];
 

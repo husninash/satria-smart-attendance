@@ -18,10 +18,17 @@ class ExportApiController extends Controller
     }
 
     /**
-     * Resolusi identitas pegawai aktif berdasarkan Sanctum Token, Header X-User-Email, atau fallback.
+     * Resolusi identitas pegawai aktif berdasarkan ID (Admin), Sanctum Token, Header X-User-Email, atau fallback.
      */
     private function resolveUser(Request $request): User
     {
+        if ($userId = $request->input('user_id') ?: $request->query('user_id')) {
+            $found = User::find($userId);
+            if ($found) {
+                return $found;
+            }
+        }
+
         if ($token = $request->bearerToken()) {
             $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
             if ($accessToken && $accessToken->tokenable instanceof User) {
@@ -84,5 +91,23 @@ class ExportApiController extends Controller
             'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
             'Expires' => '0',
         ]);
+    }
+
+    /**
+     * Download Dokumen PDF Resmi Berlogo Pusdatin Kemhan
+     */
+    public function downloadPdf(Request $request): Response
+    {
+        $user = $this->resolveUser($request);
+
+        $month = $request->input('month', now()->format('Y-m'));
+        $report = $this->exportService->generateMonthlyReportData($user->id, $month);
+        $pdf = $this->exportService->generatePdfReport($report);
+
+        $cleanNip = preg_replace('/[^0-9A-Za-z]/', '', $user->nip ?: 'Kemhan');
+        $cleanMonth = preg_replace('/[^0-9\-]/', '', $month);
+        $filename = "Laporan_Resmi_Presensi_Pusdatin_Kemhan_{$cleanNip}_{$cleanMonth}.pdf";
+
+        return $pdf->download($filename);
     }
 }
